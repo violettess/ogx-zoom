@@ -13,10 +13,10 @@
 
   // ── PASTE YOUR OWN FIREBASE CONFIG HERE IF YOU WANT YOUR OWN DB ──
   // Otherwise this uses a shared demo project (data visible to all)
-  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
   const firebaseConfig = {
     apiKey: "AIzaSyBqtcoedhkK6fXBHvb7-pKmyxcCvADsupU",
     authDomain: "ogx-zoom-cal.firebaseapp.com",
+    databaseURL: "https://ogx-zoom-cal-default-rtdb.asia-southeast1.firebasedatabase.app/",
     projectId: "ogx-zoom-cal",
     storageBucket: "ogx-zoom-cal.firebasestorage.app",
     messagingSenderId: "830724180845",
@@ -35,6 +35,7 @@
     window._dbGet = get;
     window._dbReady = true;
   } catch(e) {
+    console.error("Firebase failed:", e);
     window._dbReady = false;
   }
 

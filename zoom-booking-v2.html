@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoom Booking</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Fraunces:ital,wght@0,300;0,600;0,700;1,300&display=swap" rel="stylesheet">
+
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, onValue, set, remove, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  // ── PASTE YOUR OWN FIREBASE CONFIG HERE IF YOU WANT YOUR OWN DB ──
+  // Otherwise this uses a shared demo project (data visible to all)
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+  const firebaseConfig = {
+    apiKey: "AIzaSyBqtcoedhkK6fXBHvb7-pKmyxcCvADsupU",
+    authDomain: "ogx-zoom-cal.firebaseapp.com",
+    projectId: "ogx-zoom-cal",
+    storageBucket: "ogx-zoom-cal.firebasestorage.app",
+    messagingSenderId: "830724180845",
+    appId: "1:830724180845:web:4114d3a12af9beb2cba864",
+    measurementId: "G-VJJHGMN67P"
+  };
+
+  let app, db;
+  try {
+    app = initializeApp(firebaseConfig);
+    db = getDatabase(app);
+    window._db = db;
+    window._dbRef = ref;
+    window._dbSet = set;
+    window._dbRemove = remove;
+    window._dbGet = get;
+    window._dbReady = true;
+  } catch(e) {
+    window._dbReady = false;
+  }
+
+  window._listenBookings = function(callback) {
+    if (!window._dbReady) { callback({}); return; }
+    const bookingsRef = ref(db, 'bookings');
+    onValue(bookingsRef, (snap) => {
+      callback(snap.val() || {});
+    });
+  };
+
+  window._saveBooking = async function(id, data) {
+    if (!window._dbReady) {
+      // fallback to localStorage
+      const all = JSON.parse(localStorage.getItem('zoom_bk_v2') || '{}');
+      all[id] = data;
+      localStorage.setItem('zoom_bk_v2', JSON.stringify(all));
+      return { ok: true };
+    }
+    try {
+      await set(ref(db, `bookings/${id}`), data);
+      return { ok: true };
+    } catch(e) { return { ok: false, err: e }; }
+  };
+
+  window._deleteBooking = async function(id) {
+    if (!window._dbReady) {
+      const all = JSON.parse(localStorage.getItem('zoom_bk_v2') || '{}');
+      delete all[id];
+      localStorage.setItem('zoom_bk_v2', JSON.stringify(all));
+      return { ok: true };
+    }
+    try {
+      await remove(ref(db, `bookings/${id}`));
+      return { ok: true };
+    } catch(e) { return { ok: false, err: e }; }
+  };
+
+  window._getBookings = async function() {
+    if (!window._dbReady) {
+      return JSON.parse(localStorage.getItem('zoom_bk_v2') || '{}');
+    }
+    try {
+      const snap = await get(ref(db, 'bookings'));
+      return snap.val() || {};
+    } catch(e) { return {}; }
+  };
+
+  // Signal app to init
+  window.dispatchEvent(new Event('firebase-ready'));
+</script>
+
+<style>
+:root {
+  --bg: #f5f0e8;
+  --surface: #fffef9;
+  --zoom-blue: #1a6fff;
+  --zoom-dark: #0e3a8c;
+  --accent: #ff4f17;
+  --text: #1a1a2e;
+  --muted: #7a7a8c;
+  --border: #d8d3c8;
+  --free: #00b87a;
+  --shadow: 4px 4px 0px #1a1a2e;
+  --booking-h: 56px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'DM Mono', monospace;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  user-select: none;
+  background-image:
+    radial-gradient(circle at 15% 85%, rgba(26,111,255,0.07) 0%, transparent 50%),
+    radial-gradient(circle at 85% 15%, rgba(255,79,23,0.06) 0%, transparent 50%);
+}
+
+/* ── HEADER ── */
+header {
+  background: var(--text);
+  color: white;
+  padding: 18px 36px;
+  display: flex; align-items: center; gap: 16px;
+  border-bottom: 3px solid var(--zoom-blue);
+  position: sticky; top: 0; z-index: 50;
+}
+.zoom-icon {
+  width: 40px; height: 40px; background: var(--zoom-blue);
+  border-radius: 10px; display: flex; align-items: center;
+  justify-content: center; font-size: 20px; flex-shrink: 0;
+}
+header h1 {
+  font-family: 'Fraunces', serif; font-weight: 700;
+  font-size: 20px; letter-spacing: -0.5px;
+}
+header p { font-size: 10px; color: #999; margin-top: 1px; }
+
+.header-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.legend { display: flex; gap: 16px; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #bbb; }
+.dot { width: 9px; height: 9px; border-radius: 50%; }
+.dot.free { background: var(--free); }
+.dot.taken { background: var(--accent); }
+.dot.mine { background: #f5c518; }
+
+.sync-indicator {
+  font-size: 10px; color: #888;
+  display: flex; align-items: center; gap: 5px;
+}
+.sync-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #888; transition: background 0.3s;
+}
+.sync-dot.live { background: var(--free); }
+.sync-dot.local { background: #f5c518; }
+
+/* ── MAIN ── */
+main { max-width: 1160px; margin: 0 auto; padding: 28px 20px; }
+
+.toolbar {
+  display: flex; gap: 10px; margin-bottom: 24px;
+  flex-wrap: wrap; align-items: center;
+}
+
+.week-nav {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--surface);
+  border: 2px solid var(--text); box-shadow: var(--shadow);
+  border-radius: 8px; padding: 6px 12px;
+}
+.week-nav button {
+  background: none; border: none; cursor: pointer;
+  font-size: 20px; color: var(--text); padding: 0 2px;
+  line-height: 1;
+}
+.week-nav button:hover { color: var(--zoom-blue); }
+.week-label {
+  font-family: 'Fraunces', serif; font-size: 14px; font-weight: 600;
+  min-width: 190px; text-align: center;
+}
+
+.name-wrap {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface);
+  border: 2px solid var(--text); box-shadow: var(--shadow);
+  border-radius: 8px; padding: 7px 14px;
+  flex: 1; max-width: 280px;
+}
+.name-wrap label { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.name-wrap input {
+  border: none; background: none; outline: none;
+  font-family: 'DM Mono', monospace; font-size: 13px;
+  color: var(--text); width: 100%;
+}
+
+.today-btn {
+  background: var(--zoom-blue); color: white;
+  border: 2px solid var(--text); box-shadow: var(--shadow);
+  border-radius: 8px; padding: 8px 16px;
+  font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500;
+  cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+}
+.today-btn:hover { transform: translate(-2px,-2px); box-shadow: 6px 6px 0 var(--text); }
+.today-btn:active { transform: translate(2px,2px); box-shadow: 2px 2px 0 var(--text); }
+
+/* ── DRAG HINT ── */
+.drag-hint {
+  font-size: 11px; color: var(--muted);
+  margin-bottom: 10px; padding-left: 4px;
+}
+.drag-hint span { color: var(--zoom-blue); }
+
+/* ── GRID ── */
+.grid-wrap {
+  background: var(--surface);
+  border: 2px solid var(--text); box-shadow: var(--shadow);
+  border-radius: 12px; overflow: hidden;
+}
+
+.grid-scroll { overflow-x: auto; }
+
+.grid {
+  display: grid;
+  grid-template-columns: 64px repeat(7, 1fr);
+  min-width: 600px;
+}
+
+/* Header row */
+.gh { /* grid header cell */
+  background: var(--text); color: white;
+  padding: 12px 6px; text-align: center;
+  font-size: 10px; border-right: 1px solid #2a2a3e;
+}
+.gh:first-child { font-size: 9px; color: #666; }
+.gh .dn { font-family: 'Fraunces', serif; font-size: 13px; font-weight: 300; }
+.gh .dd { font-family: 'Fraunces', serif; font-size: 22px; font-weight: 700; line-height: 1; }
+.gh.today-col { background: var(--zoom-blue); }
+
+/* Time label */
+.tl {
+  background: #eeead9;
+  border-right: 2px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 0 8px 0 0;
+  font-size: 10px; color: var(--muted);
+  display: flex; align-items: flex-start;
+  justify-content: flex-end;
+  padding-top: 4px;
+  height: var(--booking-h);
+}
+
+/* Slot */
+.slot {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  height: var(--booking-h);
+  position: relative;
+  cursor: crosshair;
+  transition: background 0.08s;
+}
+.slot:hover { background: rgba(26,111,255,0.04); }
+.slot.drag-over { background: rgba(26,111,255,0.15); }
+.slot.drag-conflict { background: rgba(255,79,23,0.12); }
+.slot.past { background: #eeead9; cursor: not-allowed; opacity: 0.65; }
+
+/* Booking block — spans multiple rows via position absolute on a wrapper */
+.booking-blocks { position: relative; }
+
+/* Each booking is an absolutely positioned block injected into a special overlay layer */
+.overlay-layer {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+}
+
+/* ── BOOKING CARD ── */
+.bcard {
+  position: absolute;
+  left: 3px; right: 3px;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  pointer-events: all;
+  z-index: 5;
+  overflow: hidden;
+  transition: filter 0.12s, transform 0.12s;
+  border: 1.5px solid rgba(0,0,0,0.15);
+}
+.bcard:hover { filter: brightness(0.95); transform: scale(1.01); z-index: 10; }
+.bcard.taken-card {
+  background: linear-gradient(135deg, #ff6240, #ff4f17);
+  color: white;
+}
+.bcard.mine-card {
+  background: linear-gradient(135deg, #f5c518, #e8a800);
+  color: #1a1a2e;
+}
+.bcard .bc-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bcard .bc-time { font-size: 9px; opacity: 0.8; margin-top: 1px; }
+.bcard .bc-purpose { font-size: 10px; opacity: 0.85; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Drag preview overlay */
+.drag-preview {
+  position: absolute;
+  left: 3px; right: 3px;
+  background: rgba(26,111,255,0.25);
+  border: 2px dashed var(--zoom-blue);
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 20;
+  display: none;
+  transition: height 0.05s;
+}
+.drag-preview.conflict {
+  background: rgba(255,79,23,0.2);
+  border-color: var(--accent);
+}
+
+/* ── MODAL ── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(26,26,46,0.5);
+  display: none; align-items: center; justify-content: center;
+  z-index: 200;
+  backdrop-filter: blur(3px);
+}
+.modal-overlay.open { display: flex; }
+
+.modal {
+  background: var(--surface);
+  border: 2px solid var(--text); box-shadow: 10px 10px 0 var(--text);
+  border-radius: 14px; padding: 32px;
+  width: 100%; max-width: 430px;
+  position: relative;
+  animation: popIn 0.2s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes popIn {
+  from { transform: scale(0.88) translateY(16px); opacity: 0; }
+  to   { transform: scale(1) translateY(0); opacity: 1; }
+}
+.modal h2 {
+  font-family: 'Fraunces', serif; font-size: 22px; font-weight: 700;
+  margin-bottom: 3px;
+}
+.modal .slot-info {
+  font-size: 11px; color: var(--muted);
+  margin-bottom: 22px;
+}
+.close-x {
+  position: absolute; top: 14px; right: 16px;
+  background: none; border: none; font-size: 22px;
+  cursor: pointer; color: var(--muted); line-height: 1;
+}
+.close-x:hover { color: var(--text); }
+
+.fg { margin-bottom: 15px; }
+.fg label {
+  display: block; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+.fg input, .fg textarea {
+  width: 100%;
+  border: 2px solid var(--border); border-radius: 8px;
+  padding: 10px 12px;
+  font-family: 'DM Mono', monospace; font-size: 13px;
+  background: var(--bg); color: var(--text);
+  outline: none; transition: border-color 0.15s;
+}
+.fg input:focus, .fg textarea:focus { border-color: var(--zoom-blue); }
+.fg textarea { resize: vertical; min-height: 56px; }
+
+.time-summary {
+  background: rgba(26,111,255,0.07);
+  border: 1.5px solid rgba(26,111,255,0.25);
+  border-radius: 8px; padding: 10px 14px;
+  font-size: 12px; color: var(--zoom-blue);
+  margin-bottom: 18px;
+  display: flex; align-items: center; gap: 8px;
+}
+.time-summary span { font-weight: 500; }
+
+.modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+.btn-primary {
+  flex: 1; background: var(--zoom-blue); color: white;
+  border: 2px solid var(--text); box-shadow: 3px 3px 0 var(--text);
+  border-radius: 8px; padding: 12px;
+  font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500;
+  cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+}
+.btn-primary:hover { transform: translate(-1px,-1px); box-shadow: 5px 5px 0 var(--text); }
+.btn-primary:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--text); }
+.btn-primary:disabled {
+  background: var(--muted); cursor: not-allowed;
+  transform: none; box-shadow: 2px 2px 0 var(--text);
+}
+
+.btn-secondary {
+  background: none; border: 2px solid var(--border);
+  border-radius: 8px; padding: 12px 16px;
+  font-family: 'DM Mono', monospace; font-size: 13px;
+  cursor: pointer; color: var(--text);
+}
+.btn-secondary:hover { border-color: var(--text); }
+
+.btn-danger {
+  background: var(--accent); color: white;
+  border: 2px solid var(--text); box-shadow: 3px 3px 0 var(--text);
+  border-radius: 8px; padding: 12px 16px;
+  font-family: 'DM Mono', monospace; font-size: 13px;
+  cursor: pointer;
+}
+.btn-danger:hover { filter: brightness(0.92); }
+
+.conflict-warn {
+  background: rgba(255,79,23,0.1);
+  border: 1.5px solid rgba(255,79,23,0.4);
+  border-radius: 8px; padding: 8px 12px;
+  font-size: 11px; color: var(--accent);
+  margin-bottom: 10px; display: none;
+}
+
+/* ── TOAST ── */
+.toast {
+  position: fixed; bottom: 28px; left: 50%;
+  transform: translateX(-50%) translateY(60px);
+  background: var(--text); color: white;
+  padding: 11px 22px; border-radius: 30px;
+  font-size: 12px; z-index: 999; opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.28);
+  white-space: nowrap;
+}
+.toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+/* ── LOADING ── */
+.loading-bar {
+  height: 3px; background: var(--zoom-blue);
+  position: fixed; top: 0; left: 0; z-index: 300;
+  width: 0; transition: width 0.4s ease, opacity 0.3s;
+}
+.loading-bar.done { opacity: 0; }
+
+@media (max-width: 680px) {
+  header { padding: 12px 14px; }
+  .legend { display: none; }
+  main { padding: 12px 8px; }
+  .grid { grid-template-columns: 46px repeat(7,1fr); }
+  .gh .dd { font-size: 16px; }
+  .tl { font-size: 9px; }
+}
+</style>
+</head>
+<body>
+
+<div class="loading-bar" id="loadingBar"></div>
+
+<header>
+  <div class="zoom-icon">📹</div>
+  <div>
+    <h1>Zoom Booking</h1>
+    <p>Shared account scheduler — drag to book multiple hours</p>
+  </div>
+  <div class="header-right">
+    <div class="legend">
+      <div class="legend-item"><div class="dot free"></div> Free</div>
+      <div class="legend-item"><div class="dot taken"></div> Taken</div>
+      <div class="legend-item"><div class="dot mine"></div> Yours</div>
+    </div>
+    <div class="sync-indicator">
+      <div class="sync-dot" id="syncDot"></div>
+      <span id="syncLabel">connecting…</span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="toolbar">
+    <div class="week-nav">
+      <button id="prevWeek">‹</button>
+      <span class="week-label" id="weekLabel"></span>
+      <button id="nextWeek">›</button>
+    </div>
+    <div class="name-wrap">
+      <label>Your name:</label>
+      <input type="text" id="globalName" placeholder="e.g. Budi" maxlength="30" autocomplete="off">
+    </div>
+    <button class="today-btn" id="todayBtn">Today</button>
+  </div>
+  <p class="drag-hint">💡 <span>Click</span> a slot to book 1 hour · <span>Click & drag down</span> to book multiple hours</p>
+
+  <div class="grid-wrap">
+    <div class="grid-scroll">
+      <div class="grid" id="mainGrid"></div>
+    </div>
+  </div>
+</main>
+
+<!-- Book Modal -->
+<div class="modal-overlay" id="bookModal">
+  <div class="modal">
+    <button class="close-x" id="closeBook">×</button>
+    <h2>Book Zoom</h2>
+    <div class="slot-info" id="bookSlotInfo"></div>
+    <div class="time-summary" id="timeSummary">📅 <span id="summaryText"></span></div>
+    <div class="conflict-warn" id="conflictWarn">⚠️ <span id="conflictMsg">Some hours in this range are already taken.</span></div>
+    <div class="fg">
+      <label>Your Name *</label>
+      <input type="text" id="bName" placeholder="e.g. Budi Santoso" maxlength="40">
+    </div>
+    <div class="fg">
+      <label>Purpose / Description</label>
+      <textarea id="bPurpose" placeholder="e.g. Client meeting, Team standup…" rows="2"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="cancelBook">Cancel</button>
+      <button class="btn-primary" id="confirmBook">✓ Confirm Booking</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Modal -->
+<div class="modal-overlay" id="viewModal">
+  <div class="modal">
+    <button class="close-x" id="closeView">×</button>
+    <h2 id="viewTitle">Booking</h2>
+    <div class="slot-info" id="viewSlotInfo"></div>
+    <div id="viewDetails" style="font-size:13px;line-height:2;margin:12px 0 4px"></div>
+    <div class="modal-actions" id="viewActions"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ════════════════════════════════════════════════════
+//  CONSTANTS
+// ════════════════════════════════════════════════════
+const HOURS = Array.from({length: 14}, (_, i) => i + 7); // 07–20
+const DAYS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTHS= ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const SLOT_H = 56; // px — must match --booking-h
+
+// ════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════
+let bookings   = {};   // { bookingId: { name, purpose, startKey, endHour, startHour, dayISO } }
+let weekOffset = 0;
+let myName     = '';
+
+// Drag state
+let dragState  = null; // { colIdx, startHour, currentHour, preview }
+
+// Pending booking (from drag or click)
+let pendingBook = null; // { dayISO, startHour, endHour }
+
+// ════════════════════════════════════════════════════
+//  HELPERS
+// ════════════════════════════════════════════════════
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function dayISO(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function pad(n){ return String(n).padStart(2,'0'); }
+function hhmm(h){ return `${pad(h)}:00`; }
+
+function getWeekStart(offset = 0){
+  const now = new Date();
+  const diff = now.getDay() === 0 ? -6 : 1 - now.getDay();
+  const ms   = new Date(now);
+  ms.setDate(now.getDate() + diff + offset * 7);
+  ms.setHours(0,0,0,0);
+  return ms;
+}
+
+function isPast(isoDay, hour){
+  const now = new Date();
+  const d   = new Date(isoDay + 'T00:00:00');
+  const today0 = new Date(now); today0.setHours(0,0,0,0);
+  return d < today0 || (d.getTime() === today0.getTime() && hour < now.getHours());
+}
+
+function isToday(isoDay){
+  const now = new Date();
+  return dayISO(now) === isoDay;
+}
+
+// Returns array of bookingIds that overlap [startHour, endHour) on given day
+function getConflicts(isoDay, startHour, endHour, excludeId = null){
+  return Object.entries(bookings).filter(([id, b]) => {
+    if (id === excludeId) return false;
+    if (b.dayISO !== isoDay) return false;
+    // overlaps if b.startHour < endHour && b.endHour > startHour
+    return b.startHour < endHour && b.endHour > startHour;
+  }).map(([id]) => id);
+}
+
+function isMine(booking){
+  return myName && booking.name.trim().toLowerCase() === myName.trim().toLowerCase();
+}
+
+// ════════════════════════════════════════════════════
+//  RENDER
+// ════════════════════════════════════════════════════
+function render(){
+  const weekStart = getWeekStart(weekOffset);
+  const weekEnd   = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
+  document.getElementById('weekLabel').textContent =
+    `${MONTHS[weekStart.getMonth()]} ${weekStart.getDate()} – ${MONTHS[weekEnd.getMonth()]} ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`;
+
+  const grid = document.getElementById('mainGrid');
+  grid.innerHTML = '';
+
+  // Build day list
+  const days = [];
+  for(let d=0;d<7;d++){
+    const day = new Date(weekStart);
+    day.setDate(weekStart.getDate() + d);
+    days.push(day);
+  }
+
+  // ─ Header row ─
+  const emptyH = el('div','gh'); emptyH.textContent = ''; grid.appendChild(emptyH);
+  days.forEach((day, ci) => {
+    const iso = dayISO(day);
+    const h   = el('div', 'gh' + (isToday(iso) ? ' today-col' : ''));
+    h.innerHTML = `<div class="dn">${DAYS[day.getDay()]}</div><div class="dd">${day.getDate()}</div>`;
+    grid.appendChild(h);
+  });
+
+  // Build column containers for overlay booking cards
+  // We'll render slots row by row, and separately inject booking cards
+  // Strategy: each slot cell gets a data-col + data-hour for drag targeting
+  // Booking cards are absolutely positioned within a per-column overlay div
+
+  // Create a 2D array of slot cells for reference
+  const slotCells = {}; // `${colIdx}_${hour}` -> DOM element
+
+  // ─ Hour rows ─
+  HOURS.forEach(hour => {
+    const tl = el('div','tl'); tl.textContent = hhmm(hour);
+    grid.appendChild(tl);
+
+    days.forEach((day, ci) => {
+      const iso  = dayISO(day);
+      const past = isPast(iso, hour);
+      const s    = el('div','slot' + (past?' past':''));
+      s.dataset.col  = ci;
+      s.dataset.hour = hour;
+      s.dataset.iso  = iso;
+      if(!past){
+        s.addEventListener('mousedown', onSlotMouseDown);
+        s.addEventListener('mousemove', onSlotMouseMove); // for hover row highlighting
+        s.addEventListener('mouseenter', onSlotMouseEnter);
+      }
+      grid.appendChild(s);
+      slotCells[`${ci}_${hour}`] = s;
+    });
+  });
+
+  // ─ Inject booking cards ─
+  // Group bookings by column
+  const byCol = {}; // colIdx -> [booking entries]
+  Object.entries(bookings).forEach(([id, b]) => {
+    // Find which column this booking belongs to this week
+    const bDate = new Date(b.dayISO + 'T00:00:00');
+    days.forEach((day, ci) => {
+      if(dayISO(day) === b.dayISO){
+        if(!byCol[ci]) byCol[ci] = [];
+        byCol[ci].push({id, ...b});
+      }
+    });
+  });
+
+  // For each booking in view, create a card positioned over the correct slots
+  Object.entries(byCol).forEach(([ci, bks]) => {
+    bks.forEach(b => {
+      const topSlot = slotCells[`${ci}_${b.startHour}`];
+      if(!topSlot) return;
+      const hourCount = b.endHour - b.startHour;
+
+      const card = el('div', 'bcard ' + (isMine(b) ? 'mine-card' : 'taken-card'));
+      card.style.position = 'absolute';
+      // Position relative to topSlot's parent (grid). We'll use a simpler trick:
+      // inject card INTO the topSlot and make it span downward with absolute height
+      card.style.left  = '3px';
+      card.style.right = '3px';
+      card.style.top   = '2px';
+      card.style.height= (hourCount * SLOT_H - 5) + 'px';
+      card.style.zIndex= '10';
+      card.innerHTML = `
+        <div class="bc-name">👤 ${esc(b.name)}</div>
+        <div class="bc-time">${hhmm(b.startHour)} – ${hhmm(b.endHour)}</div>
+        ${b.purpose ? `<div class="bc-purpose">${esc(b.purpose)}</div>` : ''}
+      `;
+      card.addEventListener('click', e => { e.stopPropagation(); openView(b.id || b.startHour, b); });
+
+      // Make slot itself non-draggable
+      for(let h = b.startHour; h < b.endHour; h++){
+        const s = slotCells[`${ci}_${h}`];
+        if(s){
+          s.classList.add(isMine(b) ? 'mine-slot' : 'taken-slot');
+          s.dataset.bookingId = b.id;
+          // remove drag listener for taken slots
+          s.removeEventListener('mousedown', onSlotMouseDown);
+          s.style.cursor = 'pointer';
+          s.addEventListener('click', e => { e.stopPropagation(); openView(b.id, b); });
+        }
+      }
+
+      topSlot.style.overflow = 'visible';
+      topSlot.appendChild(card);
+    });
+  });
+
+  // Drag preview placeholder per column
+  days.forEach((day, ci) => {
+    const topSlot = slotCells[`${ci}_${HOURS[0]}`];
+    if(!topSlot) return;
+    const preview = el('div','drag-preview');
+    preview.id = `preview-${ci}`;
+    preview.style.position = 'absolute';
+    preview.style.left  = '3px';
+    preview.style.right = '3px';
+    preview.style.top   = '0';
+    preview.style.display = 'none';
+    // We'll reposition it dynamically
+    // Actually, each slot will hold a potential preview; we'll just create one per column
+    // attached to the column's first slot parent — simpler to just put it per startSlot on drag
+  });
+}
+
+function el(tag, cls){ const e=document.createElement(tag); if(cls) e.className=cls; return e; }
+
+// ════════════════════════════════════════════════════
+//  DRAG LOGIC
+// ════════════════════════════════════════════════════
+let dragActive   = false;
+let dragCol      = -1;
+let dragIso      = '';
+let dragStart    = -1;
+let dragCurrent  = -1;
+let dragConflict = false;
+let previewEl    = null;
+
+function onSlotMouseDown(e){
+  if(e.button !== 0) return;
+  const slot  = e.currentTarget;
+  const col   = parseInt(slot.dataset.col);
+  const hour  = parseInt(slot.dataset.hour);
+  const iso   = slot.dataset.iso;
+  if(slot.dataset.bookingId) return; // already taken
+
+  dragActive  = true;
+  dragCol     = col;
+  dragIso     = iso;
+  dragStart   = hour;
+  dragCurrent = hour;
+
+  // Create preview element in this slot
+  if(previewEl){ previewEl.remove(); previewEl = null; }
+  previewEl = el('div','drag-preview');
+  previewEl.style.position = 'absolute';
+  previewEl.style.left  = '3px';
+  previewEl.style.right = '3px';
+  previewEl.style.top   = '2px';
+  previewEl.style.display = 'block';
+  previewEl.style.height = (SLOT_H - 4) + 'px';
+  slot.style.overflow = 'visible';
+  slot.appendChild(previewEl);
+
+  updateDragPreview();
+  e.preventDefault();
+}
+
+function onSlotMouseEnter(e){
+  if(!dragActive) return;
+  const slot = e.currentTarget;
+  const col  = parseInt(slot.dataset.col);
+  const hour = parseInt(slot.dataset.hour);
+  if(col !== dragCol) return;
+  if(hour < dragStart) return; // only drag downward
+
+  dragCurrent = hour;
+  updateDragPreview();
+}
+
+function onSlotMouseMove(e){ /* intentionally empty — mouseenter handles it */ }
+
+function updateDragPreview(){
+  if(!previewEl || !dragActive) return;
+  const hourCount = dragCurrent - dragStart + 1;
+  previewEl.style.height = (hourCount * SLOT_H - 4) + 'px';
+
+  const conflicts = getConflicts(dragIso, dragStart, dragCurrent + 1);
+  dragConflict = conflicts.length > 0;
+  previewEl.classList.toggle('conflict', dragConflict);
+
+  // Highlight cells
+  document.querySelectorAll('.slot[data-col]').forEach(s => {
+    s.classList.remove('drag-over','drag-conflict');
+    const c = parseInt(s.dataset.col);
+    const h = parseInt(s.dataset.hour);
+    if(c === dragCol && h >= dragStart && h <= dragCurrent){
+      s.classList.add(dragConflict ? 'drag-conflict' : 'drag-over');
+    }
+  });
+}
+
+document.addEventListener('mouseup', e => {
+  if(!dragActive) return;
+  dragActive = false;
+
+  if(previewEl){ previewEl.remove(); previewEl = null; }
+  document.querySelectorAll('.slot').forEach(s => s.classList.remove('drag-over','drag-conflict'));
+
+  if(dragConflict){
+    showToast('⚠️ That range overlaps an existing booking!');
+    return;
+  }
+
+  // Open booking modal
+  pendingBook = { dayISO: dragIso, startHour: dragStart, endHour: dragCurrent + 1 };
+  openBookModal(pendingBook);
+});
+
+// Cancel drag on scroll/leave
+document.addEventListener('mouseleave', () => {
+  if(dragActive){ dragActive=false; if(previewEl){previewEl.remove();previewEl=null;} }
+});
+
+// ════════════════════════════════════════════════════
+//  BOOKING MODAL
+// ════════════════════════════════════════════════════
+function openBookModal(pb){
+  const d   = new Date(pb.dayISO + 'T00:00:00');
+  const dayStr = `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+
+  document.getElementById('bookSlotInfo').textContent = dayStr;
+  document.getElementById('summaryText').textContent =
+    `${hhmm(pb.startHour)} – ${hhmm(pb.endHour)}  (${pb.endHour - pb.startHour} hour${pb.endHour-pb.startHour>1?'s':''})`;
+
+  const conflicts = getConflicts(pb.dayISO, pb.startHour, pb.endHour);
+  const cw = document.getElementById('conflictWarn');
+  cw.style.display = conflicts.length ? 'block' : 'none';
+  document.getElementById('confirmBook').disabled = conflicts.length > 0;
+
+  document.getElementById('bName').value    = myName;
+  document.getElementById('bPurpose').value = '';
+  document.getElementById('bookModal').classList.add('open');
+  setTimeout(() => document.getElementById('bName').focus(), 80);
+}
+
+document.getElementById('confirmBook').addEventListener('click', async () => {
+  const name = document.getElementById('bName').value.trim();
+  if(!name){ showToast('Please enter your name!'); document.getElementById('bName').focus(); return; }
+
+  const pb   = pendingBook;
+
+  // Double-check conflicts (race condition safety)
+  const fresh = await window._getBookings();
+  bookings    = fresh || bookings;
+  const conflicts = getConflicts(pb.dayISO, pb.startHour, pb.endHour);
+  if(conflicts.length){
+    showToast('⚠️ Conflict! Someone just booked that slot.');
+    document.getElementById('conflictWarn').style.display = 'block';
+    document.getElementById('confirmBook').disabled = true;
+    render();
+    return;
+  }
+
+  const id = `${pb.dayISO}_${pb.startHour}_${Date.now()}`;
+  const booking = {
+    id, name,
+    purpose : document.getElementById('bPurpose').value.trim(),
+    dayISO  : pb.dayISO,
+    startHour: pb.startHour,
+    endHour  : pb.endHour,
+    createdAt: Date.now()
+  };
+
+  // Save name
+  myName = name;
+  localStorage.setItem('zoom_myname', name);
+  document.getElementById('globalName').value = name;
+
+  await window._saveBooking(id, booking);
+  // Optimistic local update
+  bookings[id] = booking;
+  closeModals();
+  render();
+  showToast('✓ Booked!');
+});
+
+// ════════════════════════════════════════════════════
+//  VIEW MODAL
+// ════════════════════════════════════════════════════
+function openView(id, b){
+  const mine = isMine(b);
+  document.getElementById('viewTitle').textContent = mine ? 'Your Booking' : 'Slot Taken';
+  const d = new Date(b.dayISO + 'T00:00:00');
+  document.getElementById('viewSlotInfo').textContent =
+    `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  document.getElementById('viewDetails').innerHTML =
+    `<b>Name:</b> ${esc(b.name)}<br>` +
+    `<b>Time:</b> ${hhmm(b.startHour)} – ${hhmm(b.endHour)}<br>` +
+    `<b>Duration:</b> ${b.endHour - b.startHour} hour${b.endHour-b.startHour>1?'s':''}<br>` +
+    (b.purpose ? `<b>Purpose:</b> ${esc(b.purpose)}<br>` : '');
+
+  const actions = document.getElementById('viewActions');
+  actions.innerHTML = '';
+  const closeBtn = el('button','btn-secondary'); closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', closeModals);
+  actions.appendChild(closeBtn);
+
+  if(mine){
+    const del = el('button','btn-danger'); del.textContent = '🗑 Cancel Booking';
+    del.addEventListener('click', async () => {
+      await window._deleteBooking(b.id);
+      delete bookings[b.id];
+      closeModals(); render(); showToast('Booking cancelled.');
+    });
+    actions.appendChild(del);
+  }
+  document.getElementById('viewModal').classList.add('open');
+}
+
+// ════════════════════════════════════════════════════
+//  UTILS
+// ════════════════════════════════════════════════════
+function closeModals(){
+  document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('open'));
+}
+
+let _toastTimer;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+function setSyncStatus(status){
+  const dot   = document.getElementById('syncDot');
+  const label = document.getElementById('syncLabel');
+  if(status === 'live'){ dot.className='sync-dot live'; label.textContent='Live sync'; }
+  else if(status === 'local'){ dot.className='sync-dot local'; label.textContent='Local only'; }
+  else { dot.className='sync-dot'; label.textContent='connecting…'; }
+}
+
+// ════════════════════════════════════════════════════
+//  EVENTS
+// ════════════════════════════════════════════════════
+document.getElementById('prevWeek').addEventListener('click', () => { weekOffset--; render(); });
+document.getElementById('nextWeek').addEventListener('click', () => { weekOffset++; render(); });
+document.getElementById('todayBtn').addEventListener('click', () => { weekOffset=0; render(); });
+
+document.getElementById('closeBook').addEventListener('click', closeModals);
+document.getElementById('cancelBook').addEventListener('click', closeModals);
+document.getElementById('closeView').addEventListener('click', closeModals);
+document.querySelectorAll('.modal-overlay').forEach(m =>
+  m.addEventListener('click', e => { if(e.target===m) closeModals(); })
+);
+
+document.getElementById('globalName').addEventListener('input', e => {
+  myName = e.target.value.trim();
+  localStorage.setItem('zoom_myname', myName);
+  render();
+});
+
+// ════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════
+// Load saved name
+myName = localStorage.getItem('zoom_myname') || '';
+if(myName) document.getElementById('globalName').value = myName;
+
+// Start with a local render while Firebase loads
+render();
+
+// Wait for Firebase module to initialise
+window.addEventListener('firebase-ready', () => {
+  if(window._dbReady){
+    setSyncStatus('connecting');
+    // Real-time listener
+    window._listenBookings(data => {
+      bookings = data || {};
+      setSyncStatus('live');
+      render();
+    });
+  } else {
+    // Fallback: localStorage only
+    bookings = JSON.parse(localStorage.getItem('zoom_bk_v2') || '{}');
+    setSyncStatus('local');
+    render();
+  }
+});
+
+// Fallback if firebase-ready never fires (module blocked)
+setTimeout(() => {
+  const dot = document.getElementById('syncDot');
+  if(!dot.classList.contains('live') && !dot.classList.contains('local')){
+    bookings = JSON.parse(localStorage.getItem('zoom_bk_v2') || '{}');
+    setSyncStatus('local');
+    render();
+  }
+}, 3000);
+</script>
+</body>
+</html>
